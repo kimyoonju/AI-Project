@@ -1,0 +1,67 @@
+export type DutyCode = 'D' | 'E' | 'N' | 'O' | 'W';
+
+export interface DutyInfo {
+  code: DutyCode;
+  name: string;
+  color: string; // Tailwind class
+  textColor: string; // Tailwind text color class
+}
+
+export const DUTIES: Record<DutyCode, DutyInfo> = {
+  D: { code: 'D', name: 'Day Shift', color: 'bg-white border-natural-border', textColor: 'text-natural-main' },
+  E: { code: 'E', name: 'Evening Shift', color: 'bg-[#f0e6d2] border-[#e5d9c2]', textColor: 'text-[#8d6e63]' },
+  N: { code: 'N', name: 'Night Shift', color: 'bg-[#dbe1e3] border-[#ccd4d6]', textColor: 'text-[#37474f]' },
+  O: { code: 'O', name: 'Off Duty', color: 'bg-transparent border-dashed border-natural-border/60', textColor: 'text-natural-muted/70' },
+  W: { code: 'W', name: 'Double Shift', color: 'bg-natural-alert border-transparent shadow-[0_0_10px_rgba(224,122,95,0.3)] animate-pulse', textColor: 'text-white font-bold' },
+};
+
+export interface Nurse {
+  id: string;
+  name: string;
+  competency: number; // 1 to 6
+  allowedDuties: DutyCode[]; // Toggles which shifts this nurse can perform
+}
+
+export interface DayRequest {
+  id: string;
+  nurseId: string;
+  nurseName: string;
+  duty: DutyCode;
+  day: number; // 1 to 31 depending on month
+}
+
+export interface StaffingRequirement {
+  D: number; // Day requirements
+  E: number; // Evening requirements
+  N: number; // Night requirements
+}
+
+export interface SchedulingConfig {
+  year: number;
+  month: number; // 0-indexed (0 = January)
+  weekdaysRequirement: StaffingRequirement;
+  weekendsRequirement: StaffingRequirement;
+  maxConsecutiveNights: number; // 1 to 4
+  postNightOffs: number; // 1 or 2
+}
+
+export interface DailySchedule {
+  day: number;
+  dateStr: string;
+  dayOfWeek: string; // "Mon", "Tue", etc.
+  isWeekend: boolean;
+  assignments: Record<string, DutyCode>; // nurseId -> DutyCode
+  requirementsMet: {
+    D: boolean;
+    E: boolean;
+    N: boolean;
+  };
+  requiredCounts: StaffingRequirement;
+  actualCounts: Record<DutyCode, number>;
+  doubleShiftAssigned: boolean;
+}
+
+export interface ScheduleResult {
+  days: DailySchedule[];
+  validationAlerts: string[];
+}

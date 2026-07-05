@@ -1,0 +1,6 @@
+{
+  "name": "Nurse Scheduler",
+  "description": "An interactive, rule-based Nurse Scheduling application with calendar requests, validation checks, and automatic double shift fallback logic.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
