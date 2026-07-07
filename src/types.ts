@@ -8,18 +8,20 @@ export interface DutyInfo {
 }
 
 export const DUTIES: Record<DutyCode, DutyInfo> = {
-  D: { code: 'D', name: 'Day Shift', color: 'bg-white border-natural-border', textColor: 'text-natural-main' },
-  E: { code: 'E', name: 'Evening Shift', color: 'bg-[#f0e6d2] border-[#e5d9c2]', textColor: 'text-[#8d6e63]' },
-  N: { code: 'N', name: 'Night Shift', color: 'bg-[#dbe1e3] border-[#ccd4d6]', textColor: 'text-[#37474f]' },
-  O: { code: 'O', name: 'Off Duty', color: 'bg-transparent border-dashed border-natural-border/60', textColor: 'text-natural-muted/70' },
-  W: { code: 'W', name: 'Double Shift', color: 'bg-natural-alert border-transparent shadow-[0_0_10px_rgba(224,122,95,0.3)] animate-pulse', textColor: 'text-white font-bold' },
+  D: { code: 'D', name: '낮 근무 (D)', color: 'bg-white border-natural-border', textColor: 'text-natural-main' },
+  E: { code: 'E', name: '저녁 근무 (E)', color: 'bg-[#f0e6d2] border-[#e5d9c2]', textColor: 'text-[#8d6e63]' },
+  N: { code: 'N', name: '야간 근무 (N)', color: 'bg-[#dbe1e3] border-[#ccd4d6]', textColor: 'text-[#37474f]' },
+  O: { code: 'O', name: '휴무 (O)', color: 'bg-transparent border-dashed border-natural-border/60', textColor: 'text-natural-muted/70' },
+  W: { code: 'W', name: '더블 근무 (D/E)', color: 'bg-natural-alert border-transparent shadow-[0_0_10px_rgba(224,122,95,0.3)] animate-pulse', textColor: 'text-white font-bold' },
 };
 
 export interface Nurse {
   id: string;
   name: string;
-  competency: number; // 1 to 6
+  competency: number; // 1 to 3
   allowedDuties: DutyCode[]; // Toggles which shifts this nurse can perform
+  minOffDays?: number; // Minimum off days per month
+  maxOffDays?: number; // Maximum off days per month
 }
 
 export interface DayRequest {
@@ -42,7 +44,9 @@ export interface SchedulingConfig {
   weekdaysRequirement: StaffingRequirement;
   weekendsRequirement: StaffingRequirement;
   maxConsecutiveNights: number; // 1 to 4
+  maxConsecutiveWorkDays: number; // Max consecutive days working (including double shifts)
   postNightOffs: number; // 1 or 2
+  targetOffDays: number; // Target off days per nurse per month
 }
 
 export interface DailySchedule {

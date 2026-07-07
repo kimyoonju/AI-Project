@@ -20,10 +20,11 @@ import {
   Trash2,
   Lock,
   Import,
-  FileSpreadsheet
+  FileSpreadsheet,
+  AlertCircle
 } from 'lucide-react';
 import { Nurse, DayRequest, SchedulingConfig, DailySchedule, DutyCode } from './types';
-import { generateSchedule } from './utils/schedulingAlgorithm';
+import { generateSchedule, validateSchedule, recalculateDayStats } from './utils/schedulingAlgorithm';
 import NurseManagement from './components/NurseManagement';
 import RequestCalendar from './components/RequestCalendar';
 import ScheduleGrid from './components/ScheduleGrid';
@@ -31,47 +32,75 @@ import ConfigurationPanel from './components/ConfigurationPanel';
 
 // Default mock data to populate first-time load beautifully
 const DEFAULT_NURSES: Nurse[] = [
-  { id: 'n1', name: 'John Smith, RN', competency: 5, allowedDuties: ['D', 'E', 'N'] },
-  { id: 'n2', name: 'Mary Cooper, RN', competency: 6, allowedDuties: ['D', 'E', 'N'] },
-  { id: 'n3', name: 'David Lee, RN', competency: 4, allowedDuties: ['D', 'E'] }, // Day/Evening only!
-  { id: 'n4', name: 'Sarah Jenkins, LPN', competency: 5, allowedDuties: ['N'] }, // Night shift only!
-  { id: 'n5', name: 'Robert Chen, RN', competency: 3, allowedDuties: ['D', 'E', 'N'] },
-  { id: 'n6', name: 'Emily Davis, LPN', competency: 4, allowedDuties: ['D', 'E', 'N'] },
-  { id: 'n7', name: 'James Taylor, RN', competency: 2, allowedDuties: ['D', 'E'] },
+  { id: 'n1', name: '윤상분 RN', competency: 3, allowedDuties: ['D', 'E', 'N'], minOffDays: 8, maxOffDays: 10 },
+  { id: 'n2', name: '백민숙 RN', competency: 3, allowedDuties: ['D', 'E', 'N'], minOffDays: 8, maxOffDays: 10 },
+  { id: 'n3', name: '구서진 RN', competency: 3, allowedDuties: ['N'], minOffDays: 8, maxOffDays: 12 }, // Night shift only!
+  { id: 'n4', name: '남윤후 RN', competency: 3, allowedDuties: ['D', 'E', 'N'], minOffDays: 8, maxOffDays: 10 },
+  { id: 'n5', name: '오성숙 RN', competency: 3, allowedDuties: ['D', 'E', 'N'], minOffDays: 8, maxOffDays: 10 },
 ];
 
 const DEFAULT_REQUESTS: DayRequest[] = [
-  { id: 'req1', nurseId: 'n3', nurseName: 'David Lee, RN', duty: 'O', day: 5 },
-  { id: 'req2', nurseId: 'n1', nurseName: 'John Smith, RN', duty: 'O', day: 12 },
-  { id: 'req3', nurseId: 'n2', nurseName: 'Mary Cooper, RN', duty: 'O', day: 19 },
-  { id: 'req4', nurseId: 'n4', nurseName: 'Sarah Jenkins, LPN', duty: 'O', day: 2 },
-  { id: 'req5', nurseId: 'n6', nurseName: 'Emily Davis, LPN', duty: 'D', day: 15 },
+  { id: 'req1', nurseId: 'n3', nurseName: '구서진 RN', duty: 'O', day: 5 },
+  { id: 'req2', nurseId: 'n1', nurseName: '윤상분 RN', duty: 'O', day: 12 },
+  { id: 'req3', nurseId: 'n2', nurseName: '백민숙 RN', duty: 'O', day: 19 },
+  { id: 'req4', nurseId: 'n4', nurseName: '남윤후 RN', duty: 'O', day: 2 },
+  { id: 'req5', nurseId: 'n5', nurseName: '오성숙 RN', duty: 'D', day: 15 },
 ];
 
 const DEFAULT_CONFIG: SchedulingConfig = {
   year: 2026,
   month: 6, // July (0-indexed: 6 = July)
-  weekdaysRequirement: { D: 2, E: 1, N: 1 },
+  weekdaysRequirement: { D: 1, E: 1, N: 1 }, // Adjusted for 5 nurses
   weekendsRequirement: { D: 1, E: 1, N: 1 },
   maxConsecutiveNights: 3,
+  maxConsecutiveWorkDays: 5,
   postNightOffs: 1,
+  targetOffDays: 8,
 };
 
 export default function App() {
-  // 1. Core States loaded from LocalStorage
+  // 1. Core States loaded from LocalStorage (with auto-migration for legacy defaults)
   const [nurses, setNurses] = useState<Nurse[]>(() => {
     const saved = localStorage.getItem('nurse_scheduler_nurses');
-    return saved ? JSON.parse(saved) : DEFAULT_NURSES;
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      // Auto-migrate legacy defaults
+      if (parsed.some((n: Nurse) => n.name.includes('구서진 RN(night)') || n.name.includes('김민준') || n.competency < 3)) {
+        localStorage.setItem('nurse_scheduler_nurses', JSON.stringify(DEFAULT_NURSES));
+        return DEFAULT_NURSES;
+      }
+      return parsed;
+    }
+    return DEFAULT_NURSES;
   });
 
   const [requests, setRequests] = useState<DayRequest[]>(() => {
     const saved = localStorage.getItem('nurse_scheduler_requests');
-    return saved ? JSON.parse(saved) : DEFAULT_REQUESTS;
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      // Auto-migrate legacy defaults
+      if (parsed.some((r: DayRequest) => r.nurseName.includes('구서진 RN(night)') || r.nurseName.includes('이동현') || r.nurseName.includes('김민준'))) {
+        localStorage.setItem('nurse_scheduler_requests', JSON.stringify(DEFAULT_REQUESTS));
+        return DEFAULT_REQUESTS;
+      }
+      return parsed;
+    }
+    return DEFAULT_REQUESTS;
   });
 
   const [config, setConfig] = useState<SchedulingConfig>(() => {
     const saved = localStorage.getItem('nurse_scheduler_config');
-    return saved ? JSON.parse(saved) : DEFAULT_CONFIG;
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      // Auto-migrate legacy defaults
+      if (!parsed.maxConsecutiveWorkDays || (parsed.weekdaysRequirement && parsed.weekdaysRequirement.D > 1 && nurses.length <= 5)) {
+        const migratedConfig = { ...parsed, weekdaysRequirement: { D: 1, E: 1, N: 1 }, maxConsecutiveWorkDays: 5 };
+        localStorage.setItem('nurse_scheduler_config', JSON.stringify(migratedConfig));
+        return migratedConfig;
+      }
+      return parsed;
+    }
+    return DEFAULT_CONFIG;
   });
 
   const [activeTab, setActiveTab] = useState<'schedule' | 'requests' | 'nurses' | 'config'>('schedule');
@@ -79,6 +108,7 @@ export default function App() {
   const [validationAlerts, setValidationAlerts] = useState<string[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
+  const [generationError, setGenerationError] = useState<string | null>(null);
 
   // Sync state to LocalStorage
   useEffect(() => {
@@ -105,11 +135,19 @@ export default function App() {
   // Auto-generate schedule when data changes or on initial load
   const handleGenerateSchedule = () => {
     setIsGenerating(true);
+    setGenerationError(null);
     // Slight artificial timeout to make the UI transition feel satisfyingly calculations-heavy!
     setTimeout(() => {
       const result = generateSchedule(nurses, requests, config);
       setSchedule(result.days);
       setValidationAlerts(result.validationAlerts);
+      
+      if (!result.success && result.error) {
+        setGenerationError(result.error);
+        // Display fallback alert
+        alert(`[주의] ${result.error}`);
+      }
+      
       setIsGenerating(false);
     }, 500);
   };
@@ -150,6 +188,12 @@ export default function App() {
     );
   };
 
+  const handleUpdateOffDays = (id: string, minOffDays: number, maxOffDays: number) => {
+    setNurses(
+      nurses.map((n) => (n.id === id ? { ...n, minOffDays, maxOffDays } : n))
+    );
+  };
+
   const handleAddRequest = (newRequest: Omit<DayRequest, 'id'>) => {
     const id = 'req_' + Date.now();
     setRequests([...requests, { ...newRequest, id }]);
@@ -161,7 +205,67 @@ export default function App() {
 
   const handleSaveConfig = (newConfig: SchedulingConfig) => {
     setConfig(newConfig);
-    alert('Configuration settings updated successfully! Schedule has been recalculated.');
+    alert('설정이 성공적으로 반영되었습니다! 일정표가 재계산되었습니다.');
+  };
+
+  const handleSwapDuties = (sourceNurseId: string, sourceDay: number, targetNurseId: string, targetDay: number) => {
+    const updatedSchedule = [...schedule];
+    const sourceIdx = sourceDay - 1;
+    const targetIdx = targetDay - 1;
+
+    const sourceDuty = updatedSchedule[sourceIdx].assignments[sourceNurseId] || 'O';
+    const targetDuty = updatedSchedule[targetIdx].assignments[targetNurseId] || 'O';
+
+    // Swap the duties
+    updatedSchedule[sourceIdx] = {
+      ...updatedSchedule[sourceIdx],
+      assignments: {
+        ...updatedSchedule[sourceIdx].assignments,
+        [sourceNurseId]: targetDuty,
+      }
+    };
+
+    updatedSchedule[targetIdx] = {
+      ...updatedSchedule[targetIdx],
+      assignments: {
+        ...updatedSchedule[targetIdx].assignments,
+        [targetNurseId]: sourceDuty,
+      }
+    };
+
+    // Recalculate day stats
+    updatedSchedule[sourceIdx] = recalculateDayStats(updatedSchedule[sourceIdx]);
+    if (sourceIdx !== targetIdx) {
+      updatedSchedule[targetIdx] = recalculateDayStats(updatedSchedule[targetIdx]);
+    }
+
+    // Recalculate validation alerts
+    const alerts = validateSchedule(updatedSchedule, nurses, config);
+
+    setSchedule(updatedSchedule);
+    setValidationAlerts(alerts);
+  };
+
+  const handleUpdateDuty = (nurseId: string, day: number, newDuty: DutyCode) => {
+    const updatedSchedule = [...schedule];
+    const dayIdx = day - 1;
+
+    updatedSchedule[dayIdx] = {
+      ...updatedSchedule[dayIdx],
+      assignments: {
+        ...updatedSchedule[dayIdx].assignments,
+        [nurseId]: newDuty,
+      }
+    };
+
+    // Recalculate day stats
+    updatedSchedule[dayIdx] = recalculateDayStats(updatedSchedule[dayIdx]);
+
+    // Recalculate validation alerts
+    const alerts = validateSchedule(updatedSchedule, nurses, config);
+
+    setSchedule(updatedSchedule);
+    setValidationAlerts(alerts);
   };
 
   // Nav month handlers
@@ -208,19 +312,19 @@ export default function App() {
             setNurses(parsed.nurses);
             setRequests(parsed.requests);
             setConfig(parsed.config);
-            alert('Schedule data imported successfully!');
+            alert('일정 데이터를 성공적으로 불러왔습니다!');
           } else {
-            alert('Invalid backup file. Ensure it contains nurses, requests, and config keys.');
+            alert('잘못된 백업 파일입니다. nurses, requests, config 키가 포함되어 있는지 확인해주세요.');
           }
         } catch (err) {
-          alert('Failed to parse backup JSON file.');
+          alert('백업 JSON 파일을 분석하는 데 실패했습니다.');
         }
       };
     }
   };
 
   const handleResetDefaults = () => {
-    if (window.confirm('Are you sure you want to reset all data back to the default roster and settings? This will clear current changes.')) {
+    if (window.confirm('모든 데이터를 기본 설정으로 초기화하시겠습니까? 현재 변경사항은 삭제됩니다.')) {
       setNurses(DEFAULT_NURSES);
       setRequests(DEFAULT_REQUESTS);
       setConfig(DEFAULT_CONFIG);
@@ -241,10 +345,10 @@ export default function App() {
             </div>
             <div>
               <h1 className="text-xl font-medium tracking-tight text-natural-main dark:text-white font-display italic">
-                Nurse Scheduling System
+                간호사 근무 일정 관리 시스템
               </h1>
-              <span className="text-[10px] bg-natural-sidebar text-natural-muted font-bold px-2 py-0.5 rounded-full border border-natural-border/40">
-                SaaS Dashboard v1.4 • Natural Tones
+              <span className="text-[10px] bg-natural-sidebar text-natural-muted font-bold px-2 py-0.5 rounded-full border border-natural-border/40 font-mono">
+                일정 관리 대시보드 v1.5 • 자연스러운 톤
               </span>
             </div>
           </div>
@@ -257,15 +361,15 @@ export default function App() {
               <button
                 onClick={handleExportData}
                 className="inline-flex items-center gap-1.5 text-xs font-semibold text-natural-muted hover:text-natural-clay hover:bg-natural-sidebar px-3 py-2 rounded-lg border border-natural-border transition"
-                title="Download current scheduler backup JSON"
+                title="현재 일정 백업 JSON 다운로드"
               >
                 <Download className="w-3.5 h-3.5" />
-                Backup Data
+                데이터 백업
               </button>
               
               <label className="inline-flex items-center gap-1.5 text-xs font-semibold text-natural-muted hover:text-natural-clay hover:bg-natural-sidebar px-3 py-2 rounded-lg border border-natural-border transition cursor-pointer">
                 <Upload className="w-3.5 h-3.5" />
-                Restore
+                데이터 복원
                 <input
                   type="file"
                   accept=".json"
@@ -278,7 +382,7 @@ export default function App() {
                 onClick={handleResetDefaults}
                 className="text-xs font-semibold text-natural-muted/60 hover:text-natural-alert px-3 py-2 rounded-lg border border-transparent transition"
               >
-                Reset Defaults
+                기본값 초기화
               </button>
             </div>
 
@@ -308,7 +412,7 @@ export default function App() {
             }`}
           >
             <CalendarCheck className="w-4.5 h-4.5" />
-            Schedule Matrix
+            근무 일정표
           </button>
           
           <button
@@ -320,7 +424,7 @@ export default function App() {
             }`}
           >
             <CalendarIcon className="w-4.5 h-4.5" />
-            Interactive Requests Calendar
+            희망 근무 신청
           </button>
 
           <button
@@ -332,7 +436,7 @@ export default function App() {
             }`}
           >
             <Users className="w-4.5 h-4.5" />
-            Staff Nurse Roster
+            간호사 명단 관리
           </button>
 
           <button
@@ -344,7 +448,7 @@ export default function App() {
             }`}
           >
             <Sliders className="w-4.5 h-4.5" />
-            Algorithm Parameters
+            규칙 및 알고리즘 설정
           </button>
         </div>
 
@@ -359,13 +463,33 @@ export default function App() {
               transition={{ duration: 0.2 }}
             >
               {activeTab === 'schedule' && (
-                <ScheduleGrid
-                  nurses={nurses}
-                  schedule={schedule}
-                  validationAlerts={validationAlerts}
-                  onTriggerGenerate={handleGenerateSchedule}
-                  isGenerating={isGenerating}
-                />
+                <div className="space-y-4">
+                  {generationError && (
+                    <div className="bg-[#fffbeb] dark:bg-amber-950/25 border border-amber-200 dark:border-amber-900/50 rounded-xl p-4 flex items-start gap-3 shadow-xs animate-fade-in" id="generation-error-alert">
+                      <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                      <div className="flex-1">
+                        <h4 className="text-sm font-semibold text-amber-800 dark:text-amber-300">일정 생성 품질 불만족 안내</h4>
+                        <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">{generationError}</p>
+                      </div>
+                      <button 
+                        onClick={() => setGenerationError(null)}
+                        className="text-amber-500 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300 text-xs font-semibold px-2 py-1 rounded hover:bg-amber-100 dark:hover:bg-amber-900/40 transition shrink-0"
+                      >
+                        닫기
+                      </button>
+                    </div>
+                  )}
+                  <ScheduleGrid
+                    nurses={nurses}
+                    schedule={schedule}
+                    validationAlerts={validationAlerts}
+                    onTriggerGenerate={handleGenerateSchedule}
+                    isGenerating={isGenerating}
+                    targetOffDays={config.targetOffDays}
+                    onSwapDuties={handleSwapDuties}
+                    onUpdateDuty={handleUpdateDuty}
+                  />
+                </div>
               )}
 
               {activeTab === 'requests' && (
@@ -388,6 +512,8 @@ export default function App() {
                   onRemoveNurse={handleRemoveNurse}
                   onToggleDuty={handleToggleDuty}
                   onUpdateCompetency={handleUpdateCompetency}
+                  onUpdateOffDays={handleUpdateOffDays}
+                  defaultTargetOffDays={config.targetOffDays}
                 />
               )}
 
@@ -407,14 +533,14 @@ export default function App() {
       <footer className="border-t border-natural-border bg-white dark:bg-slate-900 mt-auto">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col sm:flex-row justify-between items-center text-xs text-natural-muted gap-4">
           <div>
-            &copy; 2026 Nurse Scheduling Application. Optimized with Natural Tones Theme.
+            &copy; 2026 간호사 일정 관리 어플리케이션. 자연스러운 톤 테마 최적화.
           </div>
           <div className="flex gap-4">
-            <span className="flex items-center gap-1">
+            <span className="flex items-center gap-1 font-mono">
               <Lock className="w-3.5 h-3.5 text-natural-clay" />
-              Secure Offline-First Cache
+              안전한 오프라인 우선 캐시
             </span>
-            <span>Local Time: 2026-07-05</span>
+            <span className="font-mono">현재 시간: 2026-07-05</span>
           </div>
         </div>
       </footer>
